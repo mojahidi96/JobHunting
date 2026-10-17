@@ -1,28 +1,45 @@
-import { loadConfig, missingEnv } from "./config/env.js";
+import mongoose from "mongoose";
+import { ConfigError, loadConfig } from "./config/env.js";
+import { connectDb, syncIndexes } from "./db/connect.js";
 import { createApp } from "./app.js";
-import { EmailJobService } from "./services/emailJobService.js";
-import { createGmailMailer } from "./services/mailService.js";
+import { JobRunner, recoverInterruptedJobs } from "./services/jobRunner.js";
+import { gmailMailerFactory } from "./services/mailService.js";
+import { createAuthMailer } from "./services/authMailer.js";
+import { createGoogleClient } from "./services/googleService.js";
 
-const config = loadConfig();
-const mailer = createGmailMailer(config);
-const jobs = new EmailJobService({ mailer, getSender: () => config });
-const app = createApp(config, jobs);
+async function main() {
+  const config = loadConfig();
+  await connectDb(config.mongoUri);
+  if (config.env !== "production") await syncIndexes();
+  const recovered = await recoverInterruptedJobs();
+  if (recovered) console.warn(`Closed ${recovered} job(s) interrupted by a previous shutdown.`);
 
-const missing = missingEnv(config);
-if (missing.length) {
-  console.warn(`Missing environment variables: ${missing.join(", ")}. Listing may fail and sending is disabled until they are set.`);
+  const runner = new JobRunner({ config, mailerFactory: gmailMailerFactory });
+  const googleClient = config.google ? createGoogleClient(config.google) : null;
+  const authMailer = config.authSmtp ? createAuthMailer(config.authSmtp) : null;
+  if (!googleClient) console.warn("Google sign-in disabled: set GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REDIRECT_URI.");
+  if (!authMailer) console.warn("Email OTP sign-in disabled: set AUTH_SMTP_HOST / AUTH_SMTP_USER / AUTH_SMTP_PASS / AUTH_SMTP_FROM.");
+  const app = createApp({ config, mailerFactory: gmailMailerFactory, runner, googleClient, authMailer });
+  const server = app.listen(config.port, () => {
+    console.log(`jobhunting-api listening on http://localhost:${config.port}/api (${config.env})`);
+  });
+
+  let closing = false;
+  const shutdown = async () => {
+    if (closing) return;
+    closing = true;
+    setTimeout(() => process.exit(1), 30_000).unref();
+    server.close();
+    await runner.stop();
+    await recoverInterruptedJobs();
+    await mongoose.disconnect();
+    process.exit(0);
+  };
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
 }
 
-const server = app.listen(config.port, () => {
-  console.log(`recruiter-outreach-api listening on http://localhost:${config.port}/api`);
+main().catch((e) => {
+  console.error(e instanceof ConfigError ? e.message : `Startup failed: ${e instanceof Error ? e.name : "unknown"}`);
+  process.exit(1);
 });
-
-const shutdown = () => {
-  server.close(() => {
-    mailer.close();
-    process.exit(0);
-  });
-  setTimeout(() => process.exit(1), 5000).unref();
-};
-process.on("SIGINT", shutdown);
-process.on("SIGTERM", shutdown);

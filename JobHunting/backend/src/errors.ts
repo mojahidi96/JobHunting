@@ -4,6 +4,8 @@ export class ApiError extends Error {
     public code: string,
     message: string,
     public details: unknown[] = [],
+    /** Optional machine-readable extras (e.g. retryAfterSeconds) returned as `error.meta`. */
+    public meta?: Record<string, unknown>,
   ) {
     super(message);
   }

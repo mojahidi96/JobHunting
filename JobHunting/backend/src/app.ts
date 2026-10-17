@@ -1,82 +1,58 @@
+import cookieParser from "cookie-parser";
 import cors from "cors";
 import express, { type ErrorRequestHandler } from "express";
+import helmet from "helmet";
+import mongoose from "mongoose";
+import multer from "multer";
+import type { Config } from "./config/env.js";
 import { ApiError } from "./errors.js";
-import { missingEnv, type Config } from "./config/env.js";
-import { readWorkbook, type WorkbookRecruiter } from "./services/workbookService.js";
-import { renderEmail } from "./services/emailTemplateService.js";
-import type { EmailJobService } from "./services/emailJobService.js";
-import { parse, previewSchema, sendSchema } from "./validators/requests.js";
-import type { Recruiter } from "./types/index.js";
+import { authRoutes } from "./routes/auth.js";
+import { emailRoutes } from "./routes/emails.js";
+import { profileRoutes } from "./routes/profile.js";
+import { recruiterRoutes } from "./routes/recruiters.js";
+import { settingsRoutes } from "./routes/settings.js";
+import { templateRoutes } from "./routes/templates.js";
+import type { JobRunner } from "./services/jobRunner.js";
+import type { MailerFactory } from "./services/mailService.js";
+import type { GoogleClient } from "./services/googleService.js";
+import type { AuthMailer } from "./services/authMailer.js";
 
-export function createApp(config: Config, jobs: EmailJobService) {
+export interface AppDeps { config: Config; mailerFactory: MailerFactory; runner: JobRunner; googleClient: GoogleClient | null; authMailer: AuthMailer | null }
+
+export function createApp({ config, mailerFactory, runner, googleClient, authMailer }: AppDeps) {
   const app = express();
-  app.use(cors({ origin: config.corsOrigins }));
-  app.use(express.json({ limit: "100kb" }));
+  app.disable("x-powered-by");
+  if (config.env === "production") app.set("trust proxy", 1);
+  app.use(helmet());
+  app.use(cors({ origin: config.corsOrigins, credentials: true }));
+  app.use(cookieParser());
+  app.use(express.json({ limit: "300kb" }));
 
   const api = express.Router();
-
   api.get("/health", (_req, res) => {
-    res.json({ status: "ok", service: "recruiter-outreach-api" });
+    res.json({ status: "ok", service: "jobhunting-api", database: mongoose.connection.readyState === 1 ? "up" : "down" });
   });
-
-  api.get("/recruiters", (_req, res) => {
-    const wb = readWorkbook(config);
-    const items: Recruiter[] = wb.items.map((r) => ({ ...r, status: "pending", ...jobs.deliveryFor(r.id) }));
-    res.json({ items, source: wb.source, warnings: wb.warnings });
-  });
-
-  const resolve = (ids: string[]): WorkbookRecruiter[] => {
-    const wb = readWorkbook(config);
-    const byId = new Map(wb.items.map((r) => [r.id, r]));
-    const unique = [...new Set(ids)];
-    const unknown = unique.filter((id) => !byId.has(id));
-    if (unknown.length) throw new ApiError(404, "RECRUITER_NOT_FOUND", "Some recruiter ids were not found in the workbook.", unknown);
-    return unique.map((id) => byId.get(id)!);
-  };
-
-  api.post("/emails/preview", (req, res) => {
-    const body = parse(previewSchema, req.body);
-    const recruiters = resolve(body.recruiterIds);
-    res.json({ items: recruiters.map((r) => renderEmail(r, body.template, config)) });
-  });
-
-  api.post("/emails/send", (req, res) => {
-    const body = parse(sendSchema, req.body);
-    if (body.confirmation !== true) {
-      throw new ApiError(400, "CONFIRMATION_REQUIRED", "Sending requires confirmation: true.");
-    }
-    const missing = missingEnv(config).filter((n) => n !== "EXCEL_PATH");
-    if (missing.length) {
-      throw new ApiError(503, "SMTP_NOT_CONFIGURED", "Email sending is not configured on the server.", missing);
-    }
-    const recruiters = resolve(body.recruiterIds);
-    const job = jobs.createJob(recruiters, body.template, body.options);
-    res.status(202).json({ jobId: job.jobId, status: job.status, total: job.total, message: "Email job queued." });
-  });
-
-  api.get("/emails/jobs/:jobId", (req, res) => {
-    res.json(jobs.getJob(req.params.jobId));
-  });
-
+  api.use("/auth", authRoutes(config, { googleClient, authMailer }));
+  api.use("/settings", settingsRoutes(config, mailerFactory));
+  api.use("/email-templates", templateRoutes(config));
+  api.use("/emails", emailRoutes(config, runner));
+  api.use(profileRoutes(config));
+  api.use(recruiterRoutes(config));
   api.use((_req, _res, next) => next(new ApiError(404, "NOT_FOUND", "Route not found.")));
   app.use("/api", api);
   app.use((_req, _res, next) => next(new ApiError(404, "NOT_FOUND", "Route not found.")));
 
   const onError: ErrorRequestHandler = (err, _req, res, _next) => {
-    if (err instanceof ApiError) {
-      res.status(err.status).json({ error: { code: err.code, message: err.message, details: err.details } });
-      return;
+    const send = (status: number, code: string, message: string, details: unknown[] = [], meta?: Record<string, unknown>) =>
+      res.status(status).json({ error: { code, message, details, ...(meta ? { meta } : {}) } });
+    if (err instanceof ApiError) return void send(err.status, err.code, err.message, err.details, err.meta);
+    if (err instanceof multer.MulterError) {
+      return void (err.code === "LIMIT_FILE_SIZE" ? send(413, "PAYLOAD_TOO_LARGE", "The file is too large.") : send(400, "VALIDATION_ERROR", "Invalid upload."));
     }
-    if (err?.type === "entity.parse.failed") {
-      res.status(400).json({ error: { code: "VALIDATION_ERROR", message: "Request body is not valid JSON.", details: [] } });
-      return;
-    }
-    if (err?.type === "entity.too.large") {
-      res.status(413).json({ error: { code: "PAYLOAD_TOO_LARGE", message: "Request body is too large.", details: [] } });
-      return;
-    }
-    console.error("Unhandled error:", err instanceof Error ? err.message : "unknown");
-    res.status(500).json({ error: { code: "INTERNAL_ERROR", message: "An unexpected error occurred.", details: [] } });
+    if (err?.type === "entity.parse.failed") return void send(400, "VALIDATION_ERROR", "Request body is not valid JSON.");
+    if (err?.type === "entity.too.large") return void send(413, "PAYLOAD_TOO_LARGE", "Request body is too large.");
+    console.error("Unhandled error:", err instanceof Error ? err.name : "unknown"); // message omitted: may contain URIs
+    send(500, "INTERNAL_ERROR", "An unexpected error occurred.");
   };
   app.use(onError);
   return app;
