@@ -1,0 +1,31 @@
+# dependencies / build output
+node_modules/
+dist/
+coverage/
+
+# secrets and credentials (only the *.example templates may be committed)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+id_rsa*
+credentials*.json
+service-account*.json
+.npmrc
+
+# recruiter data (personal contact details)
+*.xlsx
+*.xls
+*.xlsm
+*.csv
+
+# logs / OS / editor
+*.log
+npm-debug.log*
+.DS_Store
+.idea/
+.vscode/
