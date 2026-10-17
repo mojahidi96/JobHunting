@@ -1,5 +1,5 @@
 {
-  "name": "recruiter-outreach",
+  "name": "jobhunting",
   "private": true,
   "scripts": {
     "install:all": "npm i && npm i --prefix backend && npm i --prefix frontend",

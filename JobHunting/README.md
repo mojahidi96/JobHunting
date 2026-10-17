@@ -1,4 +1,4 @@
-# Recruiter Outreach Mailer
+# JobHunting — Recruiter Outreach Mailer
 
 React dashboard + Express API wrapped around the existing `recruiter-outreach-mailer/sendEmails.js` workflow
 (Gmail SMTP, Excel sheet `Recruiters_Email`). The original script is untouched.
