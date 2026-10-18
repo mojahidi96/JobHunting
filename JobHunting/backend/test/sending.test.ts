@@ -132,7 +132,7 @@ describe("sender identity", () => {
     const test = await u.post("/api/settings/email/test").expect(200);
     expect(test.body.settings.status).toBe("verified");
     expect(ctx.mail.sent).toHaveLength(0);
-    expect(ctx.mail.creds.at(-1)!.password).toBe("abcdefghijklmnop"); // decrypted server-side only
+    expect(ctx.mail.creds.at(-1)!.secret).toBe("abcdefghijklmnop"); // decrypted server-side only
 
     const changed = await u.put("/api/settings/email").send({ senderName: "S", senderEmail: "other@example.com" }).expect(200);
     expect(changed.body.settings.status).toBe("unverified");

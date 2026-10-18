@@ -11,7 +11,7 @@ import { loadConfig } from "../src/config/env.js";
 import { connectDb, syncIndexes } from "../src/db/connect.js";
 import { JobRunner } from "../src/services/jobRunner.js";
 import type { AuthMailer } from "../src/services/authMailer.js";
-import type { GoogleClaims, GoogleClient } from "../src/services/googleService.js";
+import type { GmailGrant, GoogleClaims, GoogleClient } from "../src/services/googleService.js";
 import type { MailMessage, MailerFactory, SenderCredentials } from "../src/services/mailService.js";
 
 export interface FakeMail {
@@ -54,8 +54,19 @@ export async function setup() {
   };
   // Fake Google: `google.next` is what the "provider" will assert for the next code exchange.
   const google = { next: null as GoogleClaims | null, lastAuth: null as { state: string; nonce: string; codeChallenge: string } | null, failExchange: false };
+  const gmail = {
+    next: null as GmailGrant | null, lastConnect: null as { state: string; nonce: string; codeChallenge: string; loginHint?: string } | null,
+    failExchange: false, revoked: [] as string[], tokenError: null as unknown, accessTokens: [] as string[],
+  };
   const googleClient: GoogleClient = {
     authUrl(p) { google.lastAuth = p; return `https://accounts.example/auth?state=${p.state}`; },
+    gmailConnectUrl(p) { gmail.lastConnect = p; return `https://accounts.example/gmail?state=${p.state}`; },
+    async exchangeGmail() {
+      if (gmail.failExchange || !gmail.next) throw new Error("exchange failed");
+      return { ...gmail.next, nonce: gmail.next.nonce ?? gmail.lastConnect!.nonce };
+    },
+    async accessToken(t) { if (gmail.tokenError) throw gmail.tokenError; gmail.accessTokens.push(t); return `access-for-${t}`; },
+    async revoke(t) { gmail.revoked.push(t); },
     async exchange() {
       if (google.failExchange || !google.next) throw new Error("exchange failed");
       return { ...google.next, nonce: google.next.nonce ?? google.lastAuth!.nonce };
@@ -70,7 +81,7 @@ export async function setup() {
     await mongod.stop();
     fs.rmSync(uploadDir, { recursive: true, force: true });
   };
-  return { app, config, mail, authMail, google, runner, uploadDir, teardown };
+  return { app, config, mail, authMail, google, gmail, googleClient, runner, uploadDir, teardown };
 }
 
 export type TestCtx = Awaited<ReturnType<typeof setup>>;

@@ -18,6 +18,8 @@ export interface Config {
   google: { clientId: string; clientSecret: string; redirectUri: string } | null;
   /** Dedicated transactional SMTP for login OTPs, separate from users' outreach credentials. */
   authSmtp: { host: string; port: number; secure: boolean; user: string; pass: string; from: string } | null;
+  /** Allow the Gmail App Password sender (collects a mailbox-wide credential). Off by default in production. */
+  allowAppPassword: boolean;
   cookieSecure: boolean;
   uploadDir: string;
   /** Hard bounds applied to any client-supplied delay (ms). */
@@ -65,6 +67,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
         user: env.AUTH_SMTP_USER.trim(), pass: env.AUTH_SMTP_PASS, from: env.AUTH_SMTP_FROM.trim(),
       }
       : null,
+    allowAppPassword: env.ENABLE_APP_PASSWORD_SENDER ? env.ENABLE_APP_PASSWORD_SENDER === "true" : nodeEnv !== "production",
     cookieSecure: nodeEnv === "production" || env.COOKIE_SECURE === "true",
     uploadDir: path.resolve(env.UPLOAD_DIR?.trim() || "./uploads"),
     minDelayBoundMs: num(env.MIN_DELAY_BOUND_MS, 30_000),

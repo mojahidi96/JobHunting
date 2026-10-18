@@ -6,7 +6,7 @@ import { ApiError } from "../errors.js";
 import { userDto } from "../lib/dto.js";
 import { randomToken, safeEqual, sha256 } from "../lib/crypto.js";
 import { isValidEmail, parse } from "../lib/validation.js";
-import { currentUser, requireAuth } from "../middleware/auth.js";
+import { OAUTH_COOKIE, currentUser, requireAuth, sessionUserId } from "../middleware/auth.js";
 import { limiter } from "../middleware/rateLimit.js";
 import { OAuthState, Session, User } from "../models/index.js";
 import type { AuthMailer } from "../services/authMailer.js";
@@ -14,6 +14,9 @@ import { resolveVerifiedIdentity } from "../services/accountService.js";
 import { clearSessionCookie, createStarterTemplates, hashPassword, startSession, verifyPassword } from "../services/authService.js";
 import type { GoogleClient } from "../services/googleService.js";
 import { requestOtp, verifyOtp } from "../services/otpService.js";
+import { GMAIL_SEND_SCOPE } from "../services/googleService.js";
+import { decryptSecret, encryptSecret } from "../lib/crypto.js";
+import { EmailJob } from "../models/index.js";
 
 const email = z.string().trim().toLowerCase().refine(isValidEmail, "must be a valid email address");
 const password = z.string().min(10, "must be at least 10 characters").max(128)
@@ -24,7 +27,6 @@ const otpRequestSchema = z.object({ email }).strict();
 const otpVerifySchema = z.object({ email, code: z.string().trim().regex(/^\d{6}$/, "must be the 6-digit code") }).strict();
 const passwordChangeSchema = z.object({ currentPassword: z.string().max(128).optional(), newPassword: password }).strict();
 
-const OAUTH_COOKIE = "jh_oauth";
 const b64url = (b: Buffer) => b.toString("base64url");
 
 export interface AuthDeps { googleClient: GoogleClient | null; authMailer: AuthMailer | null }
@@ -106,6 +108,7 @@ export function authRoutes(config: Config, deps: AuthDeps) {
     const cookieToken = str(req.cookies?.[OAUTH_COOKIE]);
     // One-time state: consumed on first use, so a replayed callback cannot sign in or create anything twice.
     const saved = cookieToken ? await OAuthState.findOneAndDelete({ tokenHash: sha256(cookieToken), expiresAt: { $gt: new Date() } }) : null;
+    if (saved?.purpose === "gmail") return gmailCallback(req, res, saved, q);
     if (str(q.error)) return fail(res, str(q.error) === "access_denied" ? "google_denied" : "google_failed");
     if (!saved || !str(q.state) || !safeEqual(saved.state, str(q.state)) || !str(q.code)) return fail(res, "google_failed");
     try {
@@ -121,6 +124,50 @@ export function authRoutes(config: Config, deps: AuthDeps) {
       fail(res, e instanceof ApiError && e.code === "GOOGLE_ACCOUNT_CONFLICT" ? "google_conflict" : "google_failed");
     }
   });
+
+  /**
+   * Second half of "Connect Gmail" (started in routes/settings.ts). The state record is bound to the user who started it,
+   * and the browser must still hold that user's session, so a link or cookie can't be replayed to attach someone else's mailbox.
+   */
+  async function gmailCallback(req: import("express").Request, res: import("express").Response, saved: { userId?: unknown; state: string; nonce: string; codeVerifier: string }, q: Record<string, unknown>) {
+    const back = (code: string) => {
+      res.clearCookie(OAUTH_COOKIE, { path: "/api/auth/google" });
+      res.redirect(302, `${config.frontendUrl}/settings/email?gmail=${code}`);
+    };
+    const str = (v: unknown) => (typeof v === "string" ? v : "");
+    const uid = await sessionUserId(config, req);
+    if (!uid || String(uid) !== String(saved.userId)) return back("failed");
+    if (str(q.error)) return back(str(q.error) === "access_denied" ? "denied" : "failed");
+    if (!deps.googleClient || !str(q.code) || !str(q.state) || !safeEqual(saved.state, str(q.state))) return back("failed");
+    try {
+      const grant = await deps.googleClient.exchangeGmail(str(q.code), saved.codeVerifier);
+      if (!grant.nonce || !safeEqual(grant.nonce, saved.nonce)) return back("failed");
+      if (!grant.emailVerified) return back("unverified");
+      // Google's granular consent lets the user untick permissions: refuse unless sending was actually granted.
+      if (!grant.scopes.includes(GMAIL_SEND_SCOPE)) return back("scope_missing");
+      if (!grant.refreshToken) return back("no_refresh");
+      if (await EmailJob.exists({ userId: uid, active: true })) return back("job_active");
+
+      const user = await User.findById(uid).select("+emailIdentity.credential");
+      if (!user) return back("failed");
+      const old = user.emailIdentity;
+      if (old?.provider === "gmail_oauth" && old.credential?.data) {
+        try { await deps.googleClient.revoke(decryptSecret(old.credential as any, config.encryptionKey)); } catch { /* ignore */ }
+      }
+      await User.updateOne({ _id: uid }, { $set: {
+        "emailIdentity.provider": "gmail_oauth",
+        "emailIdentity.senderEmail": grant.email,
+        "emailIdentity.senderName": old?.senderName || grant.name || user.name,
+        "emailIdentity.credential": encryptSecret(grant.refreshToken, config.encryptionKey),
+        // Authorised by the account owner through Google itself, so the sender is verified without sending anything.
+        "emailIdentity.status": "verified", "emailIdentity.verifiedAt": new Date(), "emailIdentity.lastError": "",
+      } });
+      back("connected");
+    } catch {
+      console.error("Gmail connect failed");
+      back("failed");
+    }
+  }
 
   /* --------------------------------------------------------- session */
   r.post("/logout", auth, async (req, res) => {

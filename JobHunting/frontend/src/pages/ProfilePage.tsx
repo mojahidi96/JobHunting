@@ -7,7 +7,10 @@ import { Badge, Button, Card, CardHeader, Field, Input, PageHeader, Skeleton, Te
 import type { Profile } from "../types";
 
 type Form = Pick<Profile, "name" | "phone" | "headline" | "skillsSummary" | "resumeUrl" | "linkedinUrl" | "location" | "targetRoles" | "noticePeriod"> & { experienceYears: string };
-const toForm = (p: Profile): Form => ({ ...p, experienceYears: p.experienceYears === null ? "" : String(p.experienceYears) });
+const toForm = (p: Profile): Form => ({
+  name: p.name, phone: p.phone, headline: p.headline, skillsSummary: p.skillsSummary, resumeUrl: p.resumeUrl,
+  linkedinUrl: p.linkedinUrl, location: p.location, targetRoles: p.targetRoles, noticePeriod: p.noticePeriod,
+  experienceYears: p.experienceYears === null ? "" : String(p.experienceYears) });
 
 export function ProfilePage() {
   const { user, hasPassword, refresh, logout, setCsrfToken } = useAuth();

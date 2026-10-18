@@ -6,6 +6,7 @@ import { Session, User } from "../models/index.js";
 import type { Config } from "../config/env.js";
 
 export const SESSION_COOKIE = "jh_session";
+export const OAUTH_COOKIE = "jh_oauth"; // short-lived, binds an OAuth round trip to this browser
 
 export interface AuthContext {
   userId: Types.ObjectId;
@@ -58,6 +59,16 @@ export function requireAuth(config: Config): RequestHandler {
     req.auth = { userId: session.userId, sessionId: session._id, csrfToken: session.csrfToken, expiresAt: session.expiresAt, lastActiveAt };
     next();
   };
+}
+
+/** Cookie-only session lookup for browser redirects (no CSRF/Origin checks; GET navigation). Returns null when not signed in. */
+export async function sessionUserId(config: Config, req: Request): Promise<Types.ObjectId | null> {
+  const token = req.cookies?.[SESSION_COOKIE];
+  if (typeof token !== "string" || !token) return null;
+  const s = await Session.findOne({ tokenHash: sha256(token) }).lean();
+  const now = Date.now();
+  if (!s || s.expiresAt.getTime() <= now || s.lastActiveAt.getTime() + config.sessionIdleDays * 86_400_000 <= now) return null;
+  return s.userId;
 }
 
 /** Loads the signed-in user (without password hash / credential). */

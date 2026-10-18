@@ -41,10 +41,12 @@ export function profileDto(u: any) {
   };
 }
 
-export function senderDto(u: any, hasCredential: boolean) {
+export function senderDto(u: any, hasCredential: boolean, flags: { gmailOAuthAvailable?: boolean; appPasswordAllowed?: boolean } = {}) {
   const e = u.emailIdentity ?? {};
   return {
-    provider: e.provider ?? "gmail_smtp",
+    provider: e.provider ?? "gmail_oauth",
+    gmailOAuthAvailable: !!flags.gmailOAuthAvailable,
+    appPasswordAllowed: !!flags.appPasswordAllowed,
     loginEmail: u.email,
     senderName: e.senderName ?? "",
     senderEmail: e.senderEmail ?? "",

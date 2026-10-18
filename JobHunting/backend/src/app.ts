@@ -33,7 +33,7 @@ export function createApp({ config, mailerFactory, runner, googleClient, authMai
     res.json({ status: "ok", service: "jobhunting-api", database: mongoose.connection.readyState === 1 ? "up" : "down" });
   });
   api.use("/auth", authRoutes(config, { googleClient, authMailer }));
-  api.use("/settings", settingsRoutes(config, mailerFactory));
+  api.use("/settings", settingsRoutes(config, mailerFactory, { googleClient }));
   api.use("/email-templates", templateRoutes(config));
   api.use("/emails", emailRoutes(config, runner));
   api.use(profileRoutes(config));

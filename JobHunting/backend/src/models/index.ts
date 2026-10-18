@@ -34,7 +34,9 @@ const userSchema = new Schema(
     },
     // Sending identity is deliberately separate from the login email.
     emailIdentity: {
-      provider: { type: String, enum: ["gmail_smtp"], default: "gmail_smtp" },
+      // gmail_oauth: Google OAuth (gmail.send only), credential = encrypted refresh token.
+      // gmail_smtp: Gmail App Password (opt-in), credential = encrypted app password.
+      provider: { type: String, enum: ["gmail_oauth", "gmail_smtp"], default: "gmail_oauth" },
       senderName: { type: String, default: "", maxlength: 100 },
       senderEmail: { type: String, default: "", lowercase: true, maxlength: 254 },
       status: { type: String, enum: ["not_configured", "unverified", "verified", "failed"], default: "not_configured" },
@@ -84,6 +86,9 @@ const oauthStateSchema = new Schema(
     state: { type: String, required: true },
     nonce: { type: String, required: true },
     codeVerifier: { type: String, required: true },
+    // "gmail" = connecting a sending account for the signed-in user (bound to userId); otherwise a sign-in.
+    purpose: { type: String, enum: ["signin", "gmail"], default: "signin" },
+    userId: { type: id, default: null },
     expiresAt: { type: Date, required: true },
   },
   { timestamps: false, versionKey: false },

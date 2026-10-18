@@ -62,8 +62,8 @@ export class JobRunner {
     let mailer: Mailer | null = null;
     try {
       mailer = this.deps.mailerFactory({
-        senderName: idn.senderName ?? "", senderEmail: idn.senderEmail,
-        password: decryptSecret(idn.credential as any, this.deps.config.encryptionKey),
+        provider: idn.provider ?? "gmail_oauth", senderName: idn.senderName ?? "", senderEmail: idn.senderEmail,
+        secret: decryptSecret(idn.credential as any, this.deps.config.encryptionKey),
       });
       const tpl = { subject: job.templateSnapshot!.subject!, html: job.templateSnapshot!.html!, placeholderConfig: (job.templateSnapshot!.placeholderConfig ?? {}) as PlaceholderConfig };
       const globals = Object.fromEntries(job.globals ?? []) as Record<string, string>;
@@ -82,7 +82,7 @@ export class JobRunner {
         let fatalAuth = false;
         try {
           const res = await mailer.send({ to: h.snapshot!.Email!, subject: rendered.subject, html: rendered.html });
-          // "sent" = accepted by the provider's SMTP server, not guaranteed inbox delivery.
+          // "sent" = accepted by the provider (SMTP server or Gmail API), not guaranteed inbox delivery.
           const at = new Date();
           await EmailHistory.updateOne({ _id: h._id }, { $set: { status: "sent", completedAt: at, providerMessageId: res.messageId ?? undefined, subject: rendered.subject } });
           await EmailJob.updateOne({ _id: job._id }, { $inc: { "totals.sent": 1 } });
@@ -94,6 +94,8 @@ export class JobRunner {
           await EmailJob.updateOne({ _id: job._id }, { $inc: { "totals.failed": 1 } });
           await RecruiterContact.updateOne({ _id: h.contactId, userId: job.userId }, { $set: { lastDelivery: { status: "failed", at, jobId: job._id, error: safe.message } } });
           console.error(`[job ${job._id}] send failed (${safe.code})`);
+          // Quota exhausted: every further attempt would fail too, so stop here and leave the rest retryable.
+          if (safe.code === "QUOTA_EXCEEDED") fatalAuth = true;
           if (safe.code === "AUTH_FAILED") {
             fatalAuth = true;
             await User.updateOne({ _id: job.userId }, { $set: { "emailIdentity.status": "failed", "emailIdentity.verifiedAt": null, "emailIdentity.lastError": safe.message } });

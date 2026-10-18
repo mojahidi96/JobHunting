@@ -128,6 +128,7 @@ export function SendDialog({ contactIds, onClose, onDone }: { contactIds: string
                 <Alert key={pr.code} kind="warn">
                   <p><strong>{pr.message}</strong></p>
                   {pr.details.length > 0 && <ul>{pr.details.map((d, i) => <li key={i}>{d}</li>)}</ul>}
+                  {pr.code === "PLACEHOLDERS_UNRESOLVED" && <p className="mt-2">Fill these once in <Link className="font-medium underline" to="/profile" onClick={onClose}>your Profile</Link> (headline, resume link, LinkedIn, phone) and they apply to every send.</p>}
                   {pr.code === "SENDER_NOT_VERIFIED" && <p className="mt-2"><Link className="font-medium underline" to="/settings/email" onClick={onClose}>Open Email Sending Settings</Link></p>}
                   {pr.code === "TEMPLATE_NOT_REVIEWED" && (
                     <div className="mt-2 space-y-2">
