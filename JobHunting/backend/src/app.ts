@@ -6,6 +6,7 @@ import mongoose from "mongoose";
 import multer from "multer";
 import type { Config } from "./config/env.js";
 import { ApiError } from "./errors.js";
+import { adminRoutes, type SmtpTester } from "./routes/admin.js";
 import { authRoutes } from "./routes/auth.js";
 import { emailRoutes } from "./routes/emails.js";
 import { profileRoutes } from "./routes/profile.js";
@@ -17,9 +18,9 @@ import type { MailerFactory } from "./services/mailService.js";
 import type { GoogleClient } from "./services/googleService.js";
 import type { AuthMailer } from "./services/authMailer.js";
 
-export interface AppDeps { config: Config; mailerFactory: MailerFactory; runner: JobRunner; googleClient: GoogleClient | null; authMailer: AuthMailer | null }
+export interface AppDeps { config: Config; mailerFactory: MailerFactory; runner: JobRunner; googleClient: GoogleClient | null; authMailer: AuthMailer | null; smtpTester?: SmtpTester }
 
-export function createApp({ config, mailerFactory, runner, googleClient, authMailer }: AppDeps) {
+export function createApp({ config, mailerFactory, runner, googleClient, authMailer, smtpTester }: AppDeps) {
   const app = express();
   app.disable("x-powered-by");
   if (config.env === "production") app.set("trust proxy", 1);
@@ -33,6 +34,7 @@ export function createApp({ config, mailerFactory, runner, googleClient, authMai
     res.json({ status: "ok", service: "jobhunting-api", database: mongoose.connection.readyState === 1 ? "up" : "down" });
   });
   api.use("/auth", authRoutes(config, { googleClient, authMailer }));
+  api.use("/admin", adminRoutes(config, smtpTester));
   api.use("/settings", settingsRoutes(config, mailerFactory, { googleClient }));
   api.use("/email-templates", templateRoutes(config));
   api.use("/emails", emailRoutes(config, runner));

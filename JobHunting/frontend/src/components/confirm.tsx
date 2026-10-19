@@ -7,7 +7,7 @@ export interface ConfirmOptions {
   message: ReactNode;
   confirmLabel?: string;
   cancelLabel?: string;
-  /** "danger" styles the confirm button as destructive. */
+  /** Default = primary action. "danger" is reserved for destructive, hard-to-undo actions (delete, remove, revoke). */
   tone?: "default" | "danger";
 }
 export interface PromptOptions {

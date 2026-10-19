@@ -5,7 +5,7 @@ import { safeEqual } from "../lib/crypto.js";
 import { OtpCode } from "../models/index.js";
 import type { AuthMailer } from "./authMailer.js";
 
-export const OTP_TTL_MINUTES = 10;
+export const OTP_TTL_MINUTES = 5;
 export const OTP_RESEND_COOLDOWN_S = 60;
 export const OTP_MAX_ATTEMPTS = 5;
 export const OTP_MAX_PER_HOUR = 5;
@@ -15,7 +15,11 @@ const hashCode = (config: Config, email: string, code: string) =>
 
 /** Generates, stores (hash only) and emails a code. Responds identically for every address (no account enumeration). */
 export async function requestOtp(config: Config, mailer: AuthMailer | null, email: string) {
-  if (!mailer) throw new ApiError(503, "OTP_UNAVAILABLE", "Email sign-in codes are not available right now.");
+  if (!mailer || (mailer.isConfigured && !(await mailer.isConfigured()))) {
+    // Operators see the real cause in the server log; users get the generic message (the Admin dashboard shows setup status).
+    console.error("OTP unavailable: no email delivery provider is configured (Admin settings, or AUTH_SMTP_* in the environment).");
+    throw new ApiError(503, "OTP_UNAVAILABLE", "Email sign-in codes are not available right now.");
+  }
   const now = Date.now();
   const last = await OtpCode.findOne({ email }).sort({ createdAt: -1 }).lean();
   if (last) {
@@ -30,7 +34,9 @@ export async function requestOtp(config: Config, mailer: AuthMailer | null, emai
   const doc = await OtpCode.create({ email, codeHash: hashCode(config, email, code), expiresAt: new Date(now + OTP_TTL_MINUTES * 60_000) });
   try {
     await mailer.sendOtp(email, code, OTP_TTL_MINUTES);
-  } catch {
+  } catch (e) {
+    // Log the failure class only: never the recipient, the code or provider response text.
+    console.error("OTP email delivery failed:", (e as { code?: string })?.code ?? (e as Error)?.name ?? "unknown");
     await OtpCode.deleteOne({ _id: doc._id });
     throw new ApiError(502, "OTP_SEND_FAILED", "We couldn't send the code. Please try again shortly.");
   }

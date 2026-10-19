@@ -3,7 +3,8 @@ import type { Types } from "mongoose";
 import type { Response } from "express";
 import type { Config } from "../config/env.js";
 import { randomToken, sha256 } from "../lib/crypto.js";
-import { EmailTemplate, Session } from "../models/index.js";
+import { ApiError } from "../errors.js";
+import { EmailTemplate, Session, User } from "../models/index.js";
 import { SESSION_COOKIE } from "../middleware/auth.js";
 import { STARTERS } from "./starterTemplates.js";
 
@@ -25,7 +26,11 @@ export async function verifyPassword(hash: string | null | undefined, pw: string
 export type SessionMethod = "password" | "otp" | "google";
 
 /** Creates a server-side session. `expiresAt` is the absolute maximum lifetime; `lastActiveAt` drives inactivity expiry. */
-export async function startSession(config: Config, res: Response, userId: Types.ObjectId, method: SessionMethod = "password") {
+export async function startSession(config: Config, res: Response, userId: Types.ObjectId, method: SessionMethod = "password", isLogin = true) {
+  // Every sign-in method ends here, so a suspended account can't get a session through any of them.
+  const account = await User.findById(userId).select("status");
+  if (account?.status === "suspended") throw new ApiError(403, "ACCOUNT_SUSPENDED", "This account has been suspended. Contact the administrator.");
+  if (isLogin) await User.updateOne({ _id: userId }, { $set: { lastLoginAt: new Date() } });
   const token = randomToken(32);
   const csrfToken = randomToken(24);
   const maxAge = config.sessionMaxDays * 86_400_000;

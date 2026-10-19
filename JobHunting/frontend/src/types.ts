@@ -7,6 +7,20 @@ export type Theme = "light" | "dark" | "system";
 export interface User {
   id: string; name: string; email: string; profilePhotoUrl: string | null; templateOnboardingCompletedAt: string | null;
   onboardingCompleted: boolean; emailVerified: boolean; googleLinked: boolean; theme: Theme; createdAt: string;
+  /** UI hint only. The server re-checks authorization on every request. */
+  role: Role; isOwner: boolean;
+}
+export type Role = "admin" | "candidate";
+export type AccountStatus = "active" | "suspended";
+export interface AdminUser {
+  id: string; name: string; email: string; role: Role; isOwner: boolean; status: AccountStatus; emailVerified: boolean; googleLinked: boolean;
+  createdAt: string; lastLoginAt: string | null; suspendedAt: string | null;
+}
+export interface AdminUserDetail { user: AdminUser & { hasPassword: boolean; senderStatus: string; onboardingCompleted: boolean }; usage: { contacts: number; templates: number; jobs: number; emailsSent: number } }
+export interface AuditItem { id: string; action: string; actorEmail: string | null; targetEmail: string | null; meta: Record<string, unknown>; createdAt: string }
+export interface SmtpSettings {
+  configured: boolean; source: "database" | "environment" | "none"; host: string; port: number; secure: boolean; user: string; from: string;
+  hasPassword: boolean; updatedAt: string | null; lastTest: { ok: boolean; message: string; at: string } | null;
 }
 export interface Providers { password: boolean; google: boolean; otp: boolean }
 export interface SignInResponse { user: User; csrfToken: string; isNewUser: boolean }
@@ -16,7 +30,7 @@ export interface Profile {
   createdAt: string; updatedAt: string;
 }
 export interface SenderSettings {
-  provider: "gmail_smtp"; loginEmail: string; senderName: string; senderEmail: string;
+  provider: "gmail_oauth" | "gmail_smtp"; gmailOAuthAvailable?: boolean; appPasswordAllowed?: boolean; loginEmail: string; senderName: string; senderEmail: string;
   status: "not_configured" | "unverified" | "verified" | "failed"; verifiedAt: string | null; lastError: string | null; hasCredential: boolean;
 }
 export interface Contact {

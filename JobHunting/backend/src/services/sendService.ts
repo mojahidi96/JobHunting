@@ -156,6 +156,12 @@ export async function createJob(
   const user = p.user;
   const eligible = p.items.filter((i) => i.status === "eligible").length;
   const skipped = p.items.length - eligible;
+  const since = new Date(Date.now() - 86_400_000);
+  const used = await EmailHistory.countDocuments({ userId: user._id, createdAt: { $gt: since }, status: { $ne: "skipped" } });
+  if (used + eligible > config.dailySendLimit) {
+    const left = Math.max(0, config.dailySendLimit - used);
+    throw new ApiError(429, "QUOTA_EXCEEDED", `Daily sending limit reached (${config.dailySendLimit} per 24 hours). You can queue ${left} more right now.`, [], { limit: config.dailySendLimit, remaining: left });
+  }
   let job;
   try {
     job = await EmailJob.create({

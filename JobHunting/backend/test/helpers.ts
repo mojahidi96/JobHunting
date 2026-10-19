@@ -9,6 +9,7 @@ import xlsx from "xlsx";
 import { createApp } from "../src/app.js";
 import { loadConfig } from "../src/config/env.js";
 import { connectDb, syncIndexes } from "../src/db/connect.js";
+import { OtpCode } from "../src/models/index.js";
 import { JobRunner } from "../src/services/jobRunner.js";
 import type { AuthMailer } from "../src/services/authMailer.js";
 import type { GmailGrant, GoogleClaims, GoogleClient } from "../src/services/googleService.js";
@@ -27,7 +28,7 @@ export async function setup() {
   const mongod = await MongoMemoryServer.create();
   const uploadDir = fs.mkdtempSync(path.join(os.tmpdir(), "jh-uploads-"));
   const config = loadConfig({
-    NODE_ENV: "test", MONGODB_URI: mongod.getUri("jobhunting_test"), ENCRYPTION_KEY: randomBytes(32).toString("base64"), UPLOAD_DIR: uploadDir,
+    NODE_ENV: "test", MONGODB_URI: mongod.getUri("jobhunting_test"), ENCRYPTION_KEY: randomBytes(32).toString("base64"), UPLOAD_DIR: uploadDir, OWNER_EMAIL: "owner@example.com",
   } as NodeJS.ProcessEnv);
   await connectDb(config.mongoUri);
   await syncIndexes();
@@ -73,7 +74,9 @@ export async function setup() {
     },
   };
   const runner = new JobRunner({ config, mailerFactory, sleep: async () => {}, random: () => 0 });
-  const app = createApp({ config, mailerFactory, runner, googleClient, authMailer });
+  const smtpTest = { calls: [] as { host: string; to: string }[], error: null as unknown };
+  const smtpTester = async (smtp: { host: string }, to: string) => { smtpTest.calls.push({ host: smtp.host, to }); if (smtpTest.error) throw smtpTest.error; };
+  const app = createApp({ config, mailerFactory, runner, googleClient, authMailer, smtpTester });
 
   const teardown = async () => {
     await runner.idle();
@@ -81,7 +84,7 @@ export async function setup() {
     await mongod.stop();
     fs.rmSync(uploadDir, { recursive: true, force: true });
   };
-  return { app, config, mail, authMail, google, gmail, googleClient, runner, uploadDir, teardown };
+  return { app, config, mail, authMail, smtpTest, google, gmail, googleClient, runner, uploadDir, teardown };
 }
 
 export type TestCtx = Awaited<ReturnType<typeof setup>>;
@@ -138,4 +141,19 @@ export async function fillProfile(c: Client) {
     phone: "+1 555 0100", headline: "a Senior Engineer", skillsSummary: "TypeScript, Node.js",
     resumeUrl: "https://example.com/resume", linkedinUrl: "https://linkedin.com/in/test", experienceYears: 8,
   }).expect(200);
+}
+
+/** Signs in through the email-code flow (proves email ownership), returning a client like newUser(). */
+export async function otpUser(ctx: TestCtx, email: string) {
+  // Skip the resend cooldown / hourly cap that real users hit, by ageing earlier codes (timestamps are immutable via Mongoose).
+  await OtpCode.collection.updateMany({ email }, { $set: { createdAt: new Date(Date.now() - 2 * 3_600_000) } });
+  await request(ctx.app).post("/api/auth/otp/request").send({ email }).expect(200);
+  const code = [...ctx.authMail.sent].reverse().find((m) => m.to === email)!.code;
+  const agent = request.agent(ctx.app);
+  const res = await agent.post("/api/auth/otp/verify").send({ email, code });
+  if (res.status !== 200) throw new Error(`otp sign-in failed ${res.status} ${JSON.stringify(res.body)}`);
+  const csrf: string = res.body.csrfToken;
+  const wrap = (m: "post" | "put" | "patch" | "delete") => (url: string) => (agent as any)[m](url).set("X-CSRF-Token", csrf);
+  return { email, id: res.body.user.id as string, csrf, agent, user: res.body.user,
+    get: (url: string) => agent.get(url), post: wrap("post"), put: wrap("put"), patch: wrap("patch"), del: wrap("delete") };
 }

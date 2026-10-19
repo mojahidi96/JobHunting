@@ -16,8 +16,32 @@ export function userDto(u: any) {
     emailVerified: !!u.emailVerified,
     googleLinked: !!u.googleSub,
     theme: u.theme ?? "system",
+    // UI hints only; the backend re-checks authorization on every request.
+    role: u.role === "admin" && u.emailVerified ? "admin" : "candidate",
+    isOwner: !!u.isOwner && !!u.emailVerified,
     createdAt: iso(u.createdAt),
   };
+}
+
+/** Operational view for the Admin dashboard. No password hash, tokens, OTPs, credentials or profile content. */
+export function adminUserDto(u: any) {
+  return {
+    id: String(u._id),
+    name: u.name,
+    email: u.email,
+    role: u.role === "admin" ? "admin" : "candidate",
+    isOwner: !!u.isOwner,
+    status: u.status === "suspended" ? "suspended" : "active",
+    emailVerified: !!u.emailVerified,
+    googleLinked: !!u.googleSub,
+    createdAt: iso(u.createdAt),
+    lastLoginAt: iso(u.lastLoginAt),
+    suspendedAt: iso(u.suspendedAt),
+  };
+}
+
+export function auditDto(a: any) {
+  return { id: String(a._id), action: a.action, actorEmail: a.actorEmail || null, targetEmail: a.targetEmail || null, meta: a.meta ?? {}, createdAt: iso(a.createdAt) };
 }
 
 export function profileDto(u: any) {

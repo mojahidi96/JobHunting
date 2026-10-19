@@ -201,6 +201,21 @@ Request: `{ templateId, contactIds[1..500], perSendValues?, options?, confirmati
 Error codes in `HistoryItem.error.code`: `SKIPPED`, `AUTH_FAILED`, `RECIPIENT_REJECTED`, `TEMPORARY_FAILURE` (retryable), `CONNECTION_FAILED` (retryable),
 `OUTCOME_UNKNOWN` (timeout/crash mid-send; **not** retryable), `SEND_FAILED`, `JOB_ABORTED` / `INTERRUPTED` / `SENDER_UNAVAILABLE` (never attempted; retryable).
 
+## Roles and Admin (`/admin/*`)
+
+`User` additionally returns `role: "admin" | "candidate"` and `isOwner: boolean` (UI hints only). Every `/admin` route requires a session **and** the admin role, checked server-side per request (`403 FORBIDDEN`); owner routes return `403 OWNER_ONLY`. A suspended account gets `403 ACCOUNT_SUSPENDED` and its sessions are deleted.
+
+| Route | Who | Notes |
+|---|---|---|
+| `GET /admin/users?q&role&status&sort&order&page&pageSize` | admin | `sort` ∈ createdAt,name,email,lastLoginAt. Items: `{id,name,email,role,isOwner,status,emailVerified,googleLinked,createdAt,lastLoginAt,suspendedAt}` |
+| `GET /admin/users/:id` | admin | `{user (+hasPassword, senderStatus), usage:{contacts,templates,jobs,emailsSent}}` counts only |
+| `PATCH /admin/users/:id/role` `{role}` | **owner** | `409 OWNER_PROTECTED / SELF_CHANGE / EMAIL_UNVERIFIED / ACCOUNT_SUSPENDED` |
+| `PATCH /admin/users/:id/status` `{status: active\|suspended}` | admin (candidates), owner (admins) | same 409s; `403 OWNER_ONLY` for admin→admin |
+| `GET /admin/audit?page&pageSize` | admin | role changes, status changes, settings changes |
+| `GET/PUT/DELETE /admin/settings/email`, `POST /admin/settings/email/test` | **owner** | `{host,port,secure,user,from,pass?}`; the response never contains the password (`hasPassword` only). Test returns `{ok,message,code?}` with a sanitized message. |
+
+`POST /emails/send` and retry may return `429 QUOTA_EXCEEDED` (`meta.limit`, `meta.remaining`) when the rolling 24-hour cap is reached. Sign-in codes expire after 5 minutes.
+
 ## Health
 `GET /api/health` → `{ status:"ok", service:"jobhunting-api", database:"up"|"down" }` (no auth).
 

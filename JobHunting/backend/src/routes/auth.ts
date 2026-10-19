@@ -13,6 +13,7 @@ import type { AuthMailer } from "../services/authMailer.js";
 import { resolveVerifiedIdentity } from "../services/accountService.js";
 import { clearSessionCookie, createStarterTemplates, hashPassword, startSession, verifyPassword } from "../services/authService.js";
 import type { GoogleClient } from "../services/googleService.js";
+import { ensureOwner } from "../services/ownerService.js";
 import { requestOtp, verifyOtp } from "../services/otpService.js";
 import { GMAIL_SEND_SCOPE } from "../services/googleService.js";
 import { decryptSecret, encryptSecret } from "../lib/crypto.js";
@@ -39,8 +40,8 @@ export function authRoutes(config: Config, deps: AuthDeps) {
   const auth = requireAuth(config);
 
   /** Which sign-in methods this deployment has configured (no secrets). */
-  r.get("/providers", (_req, res) => {
-    res.json({ password: true, google: !!deps.googleClient, otp: !!deps.authMailer });
+  r.get("/providers", async (_req, res) => {
+    res.json({ password: true, google: !!deps.googleClient, otp: !!deps.authMailer && (!deps.authMailer.isConfigured || await deps.authMailer.isConfigured()) });
   });
 
   /* --------------------------------------------------- email + password */
@@ -79,6 +80,7 @@ export function authRoutes(config: Config, deps: AuthDeps) {
     const b = parse(otpVerifySchema, req.body);
     await verifyOtp(config, b.email, b.code);
     const { userId, isNew } = await resolveVerifiedIdentity({ email: b.email, name: "" });
+    await ensureOwner(config, userId);
     const csrfToken = await startSession(config, res, userId, "otp");
     const user = await User.findById(userId);
     res.json({ user: userDto(user), csrfToken, isNewUser: isNew });
@@ -116,12 +118,13 @@ export function authRoutes(config: Config, deps: AuthDeps) {
       if (!claims.nonce || !safeEqual(claims.nonce, saved.nonce)) return fail(res, "google_failed");
       if (!claims.emailVerified) return fail(res, "google_unverified");
       const { userId } = await resolveVerifiedIdentity({ email: claims.email, name: claims.name, googleSub: claims.sub });
+      await ensureOwner(config, userId);
       await startSession(config, res, userId, "google");
       res.clearCookie(OAUTH_COOKIE, { path: "/api/auth/google" });
       res.redirect(302, `${config.frontendUrl}/`);
     } catch (e) {
       console.error("Google sign-in failed:", e instanceof ApiError ? e.code : "exchange_error");
-      fail(res, e instanceof ApiError && e.code === "GOOGLE_ACCOUNT_CONFLICT" ? "google_conflict" : "google_failed");
+      fail(res, e instanceof ApiError && e.code === "GOOGLE_ACCOUNT_CONFLICT" ? "google_conflict" : e instanceof ApiError && e.code === "ACCOUNT_SUSPENDED" ? "account_suspended" : "google_failed");
     }
   });
 
@@ -202,7 +205,7 @@ export function authRoutes(config: Config, deps: AuthDeps) {
     user.passwordHash = await hashPassword(body.newPassword);
     await user.save();
     await Session.deleteMany({ userId: user._id });
-    const csrfToken = await startSession(config, res, user._id, "password");
+    const csrfToken = await startSession(config, res, user._id, "password", false);
     res.json({ ok: true, csrfToken });
   });
 

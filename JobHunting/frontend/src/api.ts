@@ -37,7 +37,8 @@ async function raw(method: string, path: string, opts: { body?: unknown; form?: 
   if (!res.ok) {
     let e: { error?: { code?: string; message?: string; details?: unknown[]; meta?: Record<string, unknown> } } = {};
     try { e = await res.json(); } catch { /* non-JSON error */ }
-    if (res.status === 401 && !path.startsWith("/auth/")) onUnauthenticated(e.error?.code ?? "UNAUTHENTICATED");
+    const code = e.error?.code ?? "UNAUTHENTICATED";
+    if ((res.status === 401 || code === "ACCOUNT_SUSPENDED") && !path.startsWith("/auth/")) onUnauthenticated(code);
     throw new ApiError(res.status, e.error?.code ?? "ERROR", e.error?.message ?? `Request failed (${res.status}).`, (e.error?.details ?? []).map(String), e.error?.meta ?? {});
   }
   return res;
@@ -67,6 +68,17 @@ export const api = {
   saveSender: (b: { senderName: string; senderEmail: string; appPassword?: string }) => json<{ settings: T.SenderSettings }>("PUT", "/settings/email", { body: b }),
   testSender: () => json<{ settings: T.SenderSettings }>("POST", "/settings/email/test", { body: {} }),
   removeSender: () => json<{ settings: T.SenderSettings }>("DELETE", "/settings/email"),
+  saveSenderName: (senderName: string) => json<{ settings: T.SenderSettings }>("PATCH", "/settings/email", { body: { senderName } }),
+  /* admin */
+  adminUsers: (q: Query) => json<T.Page<T.AdminUser>>("GET", "/admin/users", { query: q }),
+  adminUser: (id: string) => json<T.AdminUserDetail>("GET", `/admin/users/${id}`),
+  setRole: (id: string, role: T.Role) => json<{ user: T.AdminUser }>("PATCH", `/admin/users/${id}/role`, { body: { role } }),
+  setStatus: (id: string, status: T.AccountStatus) => json<{ user: T.AdminUser }>("PATCH", `/admin/users/${id}/status`, { body: { status } }),
+  adminAudit: (q: Query) => json<T.Page<T.AuditItem>>("GET", "/admin/audit", { query: q }),
+  smtpSettings: () => json<{ settings: T.SmtpSettings }>("GET", "/admin/settings/email"),
+  saveSmtp: (b: { host: string; port: number; secure: boolean; user: string; from: string; pass?: string }) => json<{ settings: T.SmtpSettings }>("PUT", "/admin/settings/email", { body: b }),
+  clearSmtp: () => json<{ settings: T.SmtpSettings }>("DELETE", "/admin/settings/email"),
+  testSmtp: () => json<{ ok: boolean; message: string; code?: string; settings: T.SmtpSettings }>("POST", "/admin/settings/email/test", { body: {} }),
   /* contacts */
   contacts: (q: Query) => json<T.Page<T.Contact>>("GET", "/recruiters", { query: q }),
   createContact: (b: T.ContactInput) => json<{ item: T.Contact }>("POST", "/recruiters", { body: b }),

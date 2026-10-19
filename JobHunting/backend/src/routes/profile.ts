@@ -138,6 +138,7 @@ export function profileRoutes(config: Config) {
       ? !!b.password && (await verifyPassword(user.passwordHash, b.password))
       : (b.confirmEmail ?? "").trim().toLowerCase() === user.email;
     if (!confirmed) throw new ApiError(403, "INVALID_CREDENTIALS", user.passwordHash ? "Incorrect password." : "Type your account email address to confirm.");
+    if (user.isOwner) throw new ApiError(409, "OWNER_PROTECTED", "The owner account can't be deleted from here. Transfer ownership first.");
     const active = await EmailJob.exists({ userId: user._id, active: true });
     if (active) throw new ApiError(409, "JOB_ACTIVE", "An email job is still running. Wait for it to finish first.");
     const uid = user._id;

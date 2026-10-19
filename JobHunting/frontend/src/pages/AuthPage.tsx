@@ -14,6 +14,7 @@ const GOOGLE_ERRORS: Record<string, string> = {
   google_failed: "Google sign-in didn't complete. Please try again.",
   google_unverified: "Your Google email address isn't verified, so we can't use it to sign you in.",
   google_conflict: "This email is already linked to a different Google account.",
+  account_suspended: "This account has been suspended. Contact the administrator.",
   google_unavailable: "Google sign-in isn't available right now.",
 };
 
@@ -88,6 +89,7 @@ export function AuthPage({ mode }: { mode: Mode }) {
       case "OTP_INVALID": return typeof error.meta.attemptsRemaining === "number" ? `${error.message} ${error.meta.attemptsRemaining} attempt(s) left.` : error.message;
       case "OTP_COOLDOWN": return `Please wait ${cooldown || Number(error.meta.retryAfterSeconds ?? 0)}s before requesting another code.`;
       case "OTP_RATE_LIMITED": return "You've requested too many codes. Please try again in about an hour, or sign in another way.";
+      case "ACCOUNT_SUSPENDED": return "This account has been suspended. Contact the administrator.";
       case "OTP_UNAVAILABLE": return "Email codes aren't available right now. Please use another sign-in method.";
       default: return error.message;
     }
@@ -127,6 +129,7 @@ export function AuthPage({ mode }: { mode: Mode }) {
         <div className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center px-4 pb-10 sm:px-6">
           <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
           <p className="mt-1 text-sm text-muted">{subtitle}</p>
+          {mode !== "login" && <p className="mt-1 text-xs text-muted">We never ask for your Gmail password. <Link className="underline" to="/privacy">How your data and email are handled</Link>.</p>}
 
           {notice && <Alert kind="warn" className="mt-5"><p>{notice}</p><button type="button" className="mt-1 text-xs underline" onClick={clearNotice}>Dismiss</button></Alert>}
           {urlError && <Alert className="mt-5"><p>{urlError}</p></Alert>}

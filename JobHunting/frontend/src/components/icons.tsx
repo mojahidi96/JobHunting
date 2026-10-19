@@ -20,6 +20,7 @@ export const MoonIcon = (p: SVGProps<SVGSVGElement>) => <Icon {...p}><path d="M2
 export const MonitorIcon = (p: SVGProps<SVGSVGElement>) => <Icon {...p}><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M8 21h8M12 16v5" /></Icon>;
 export const ChevronDownIcon = (p: SVGProps<SVGSVGElement>) => <Icon {...p}><path d="M6 9l6 6 6-6" /></Icon>;
 export const LogoutIcon = (p: SVGProps<SVGSVGElement>) => <Icon {...p}><path d="M9 4H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h4M16 8l4 4-4 4M20 12H9" /></Icon>;
+export const ShieldIcon = (p: SVGProps<SVGSVGElement>) => <Icon {...p}><path d="M12 3l8 3v6c0 4.5-3.2 8-8 9-4.8-1-8-4.5-8-9V6z" /><path d="M9 12l2 2 4-4" /></Icon>;
 export const CheckIcon = (p: SVGProps<SVGSVGElement>) => <Icon {...p}><path d="M5 12l5 5 9-10" /></Icon>;
 export const UploadIcon = (p: SVGProps<SVGSVGElement>) => <Icon {...p}><path d="M12 16V4M7 9l5-5 5 5M4 20h16" /></Icon>;
 export const InboxIcon = (p: SVGProps<SVGSVGElement>) => <Icon {...p}><path d="M3 13l3-8h12l3 8v6H3zM3 13h5l1 3h6l1-3h5" /></Icon>;

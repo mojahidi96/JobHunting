@@ -18,6 +18,7 @@ const Ctx = createContext<AuthState | null>(null);
 export const useAuth = () => { const c = useContext(Ctx); if (!c) throw new Error("AuthProvider missing"); return c; };
 
 export const SESSION_EXPIRED_MESSAGE = "Your session expired, so we signed you out. Please sign in again.";
+export const SUSPENDED_MESSAGE = "This account has been suspended. Contact the administrator if you think this is a mistake.";
 
 /** Auth state lives only in memory. The session itself is an HttpOnly cookie the page cannot read. */
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -35,11 +36,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (e) {
       clear();
       if (e instanceof ApiError && e.code === "SESSION_EXPIRED") setNotice(SESSION_EXPIRED_MESSAGE);
+      if (e instanceof ApiError && e.code === "ACCOUNT_SUSPENDED") setNotice(SUSPENDED_MESSAGE);
     }
   }, [clear]);
 
   useEffect(() => {
-    setUnauthenticatedHandler(() => { clear(); setNotice(SESSION_EXPIRED_MESSAGE); });
+    setUnauthenticatedHandler((code) => { clear(); setNotice(code === "ACCOUNT_SUSPENDED" ? SUSPENDED_MESSAGE : SESSION_EXPIRED_MESSAGE); });
     refresh().finally(() => setLoading(false));
   }, [refresh, clear]);
 

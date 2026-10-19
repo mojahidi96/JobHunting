@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
 import { AuthProvider } from "../auth";
 import { PreviewFrame, StatusBadge } from "../components/common";
-import { ConfirmProvider } from "../components/confirm";
+import { ConfirmProvider, useConfirm } from "../components/confirm";
 import { ToastProvider } from "../components/ui";
 import { TemplatesPage } from "../pages/TemplatesPage";
 import { RecruitersPage } from "../pages/RecruitersPage";
@@ -399,5 +399,67 @@ describe("components", () => {
     expect(screen.getByText("✓ Sent")).toBeInTheDocument();
     expect(screen.getByText("✕ Failed")).toBeInTheDocument();
     expect(screen.getByText("– Skipped")).toBeInTheDocument();
+  });
+});
+
+describe("confirmation dialog buttons", () => {
+  function Harness({ tone }: { tone?: "danger" }) {
+    const confirm = useConfirm();
+    return <button onClick={() => void confirm({ title: "Sure?", message: "m", confirmLabel: "Go", tone })}>open</button>;
+  }
+  const open = async (tone?: "danger") => {
+    render(<ThemeProvider><ConfirmProvider><Harness tone={tone} /></ConfirmProvider></ThemeProvider>);
+    await userEvent.click(screen.getByRole("button", { name: "open" }));
+    return within(await screen.findByRole("dialog", { name: "Sure?" })).getByRole("button", { name: "Go" });
+  };
+  it("uses the primary colour for ordinary confirmations", async () => {
+    const btn = await open();
+    expect(btn.className).toContain("bg-primary");
+    expect(btn.className).not.toContain("bg-danger");
+  });
+  it("keeps destructive confirmations visually distinct", async () => {
+    expect((await open("danger")).className).toContain("bg-danger");
+  });
+});
+
+describe("roles in the UI", () => {
+  const signedIn = (u: Record<string, unknown>, extra?: Handler): Handler => (url, init) => {
+    if (url.pathname === "/api/auth/me") return me(user(u));
+    return extra?.(url, init) ?? appData(url, init);
+  };
+  it("hides Admin navigation from candidates and redirects /admin", async () => {
+    mockApi(signedIn({ role: "candidate" }));
+    renderApp("/admin");
+    await screen.findByRole("heading", { name: "Dashboard" });
+    expect(screen.queryByRole("link", { name: "Admin" })).not.toBeInTheDocument();
+    expect(calls.some((c) => c.path.startsWith("/api/admin"))).toBe(false);
+  });
+  it("shows the dashboard to admins, and only the owner sees Email delivery and can promote", async () => {
+    const row = { id: "u2", name: "Cand One", email: "c1@example.com", role: "candidate", isOwner: false, status: "active", emailVerified: true, googleLinked: false, createdAt: "2026-01-02T00:00:00Z", lastLoginAt: null, suspendedAt: null };
+    const h = (u: Record<string, unknown>) => signedIn(u, (url) => {
+      if (url.pathname === "/api/admin/users") return { body: { items: [row], total: 1, page: 1, pageSize: 20 } };
+      if (url.pathname === "/api/admin/users/u2") return { body: { user: { ...row, hasPassword: true, senderStatus: "not_configured", onboardingCompleted: true }, usage: { contacts: 0, templates: 1, jobs: 0, emailsSent: 0 } } };
+      if (url.pathname === "/api/admin/users/u2/role") return { body: { user: { ...row, role: "admin" } } };
+    });
+    mockApi(h({ role: "admin", isOwner: false }));
+    const a = renderApp("/admin");
+    expect(await screen.findByText("c1@example.com")).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "Email delivery" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /manage cand one/i }));
+    const dlg = await screen.findByRole("dialog", { name: "Account details" });
+    expect(within(dlg).getByRole("button", { name: "Make Admin" })).toBeDisabled(); // UI hint; the API enforces this too
+    a.unmount();
+
+    mockApi(h({ role: "admin", isOwner: true }));
+    renderApp("/admin");
+    expect(await screen.findByRole("tab", { name: "Email delivery" })).toBeInTheDocument();
+    await userEvent.click(await screen.findByRole("button", { name: /manage cand one/i }));
+    const d2 = await screen.findByRole("dialog", { name: "Account details" });
+    await waitFor(() => expect(within(d2).getByRole("button", { name: "Make Admin" })).toBeEnabled());
+    await userEvent.click(within(d2).getByRole("button", { name: "Make Admin" }));
+    const confirmDlg = await screen.findByRole("dialog", { name: /make cand one an admin/i });
+    expect(within(confirmDlg).getByRole("button", { name: "Make Admin" }).className).toContain("bg-primary");
+    await userEvent.click(within(confirmDlg).getByRole("button", { name: "Make Admin" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "PATCH" && c.path === "/api/admin/users/u2/role" && c.body === JSON.stringify({ role: "admin" }))).toBe(true));
   });
 });

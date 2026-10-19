@@ -14,6 +14,9 @@ export interface AuthContext {
   csrfToken: string;
   expiresAt: Date;
   lastActiveAt: Date;
+  /** Authorization is read from the database on every request, never from the client or the session cookie. */
+  role: "candidate" | "admin";
+  isOwner: boolean;
 }
 declare module "express-serve-static-core" {
   interface Request { auth?: AuthContext }
@@ -51,15 +54,35 @@ export function requireAuth(config: Config): RequestHandler {
       if (!header || !safeEqual(header, session.csrfToken)) throw new ApiError(403, "CSRF_INVALID", "Missing or invalid CSRF token.");
     }
 
+    const u = await User.findById(session.userId).select("role status isOwner emailVerified email").lean();
+    if (!u) throw new ApiError(401, "UNAUTHENTICATED", "Please sign in.");
+    if (u.status === "suspended") {
+      await Session.deleteMany({ userId: session.userId });
+      throw new ApiError(403, "ACCOUNT_SUSPENDED", "This account has been suspended. Contact the administrator.");
+    }
+    // Privileges require a verified email; owner status additionally requires the configured owner address.
+    const isOwner = !!u.isOwner && !!u.emailVerified && !!config.ownerEmail && u.email === config.ownerEmail;
+    const isAdmin = isOwner || (u.role === "admin" && !!u.emailVerified);
+
     let lastActiveAt = session.lastActiveAt;
     if (req.get("x-background") !== "1" && now - session.lastActiveAt.getTime() > TOUCH_INTERVAL_MS) {
       lastActiveAt = new Date(now);
       await Session.updateOne({ _id: session._id }, { $set: { lastActiveAt } });
     }
-    req.auth = { userId: session.userId, sessionId: session._id, csrfToken: session.csrfToken, expiresAt: session.expiresAt, lastActiveAt };
+    req.auth = { userId: session.userId, sessionId: session._id, csrfToken: session.csrfToken, expiresAt: session.expiresAt, lastActiveAt, role: isAdmin ? "admin" : "candidate", isOwner };
     next();
   };
 }
+
+/** Deny by default: route-level guards, always layered after requireAuth. */
+export const requireAdmin: RequestHandler = (req, _res, next) => {
+  if (req.auth?.role !== "admin") throw new ApiError(403, "FORBIDDEN", "You don't have permission to do that.");
+  next();
+};
+export const requireOwner: RequestHandler = (req, _res, next) => {
+  if (!req.auth?.isOwner) throw new ApiError(403, "OWNER_ONLY", "Only the application owner can do that.");
+  next();
+};
 
 /** Cookie-only session lookup for browser redirects (no CSRF/Origin checks; GET navigation). Returns null when not signed in. */
 export async function sessionUserId(config: Config, req: Request): Promise<Types.ObjectId | null> {

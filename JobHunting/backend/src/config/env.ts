@@ -18,6 +18,8 @@ export interface Config {
   google: { clientId: string; clientSecret: string; redirectUri: string } | null;
   /** Dedicated transactional SMTP for login OTPs, separate from users' outreach credentials. */
   authSmtp: { host: string; port: number; secure: boolean; user: string; pass: string; from: string } | null;
+  /** Application owner (initial Admin). Granted server-side only, and only once this exact email is verified. */
+  ownerEmail: string | null;
   /** Allow the Gmail App Password sender (collects a mailbox-wide credential). Off by default in production. */
   allowAppPassword: boolean;
   cookieSecure: boolean;
@@ -27,6 +29,8 @@ export interface Config {
   maxDelayBoundMs: number;
   defaultDelayMinMs: number;
   defaultDelayMaxMs: number;
+  /** Per-user cap on messages queued in any rolling 24h window (abuse / relay prevention). */
+  dailySendLimit: number;
   /** Disable rate limits only in tests. */
   rateLimits: boolean;
 }
@@ -67,13 +71,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
         user: env.AUTH_SMTP_USER.trim(), pass: env.AUTH_SMTP_PASS, from: env.AUTH_SMTP_FROM.trim(),
       }
       : null,
-    allowAppPassword: env.ENABLE_APP_PASSWORD_SENDER ? env.ENABLE_APP_PASSWORD_SENDER === "true" : nodeEnv !== "production",
+    ownerEmail: env.OWNER_EMAIL?.trim().toLowerCase() || null,
+    // Off unless explicitly enabled: public users should connect Gmail through OAuth and never hand over an App Password.
+    // (Tests use the App Password path with a fake mailer.)
+    allowAppPassword: env.ENABLE_APP_PASSWORD_SENDER ? env.ENABLE_APP_PASSWORD_SENDER === "true" : nodeEnv === "test",
     cookieSecure: nodeEnv === "production" || env.COOKIE_SECURE === "true",
     uploadDir: path.resolve(env.UPLOAD_DIR?.trim() || "./uploads"),
     minDelayBoundMs: num(env.MIN_DELAY_BOUND_MS, 30_000),
     maxDelayBoundMs: num(env.MAX_DELAY_BOUND_MS, 300_000),
     defaultDelayMinMs: num(env.DEFAULT_DELAY_MIN_MS, 45_000),
     defaultDelayMaxMs: num(env.DEFAULT_DELAY_MAX_MS, 90_000),
+    dailySendLimit: num(env.DAILY_SEND_LIMIT, 200),
     rateLimits: nodeEnv !== "test",
   };
 }

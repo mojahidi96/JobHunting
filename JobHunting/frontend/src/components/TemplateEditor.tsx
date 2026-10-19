@@ -47,7 +47,7 @@ export function TemplateEditor({ template, initial, onSaved, onClose }: Props) {
   }, [dirty]);
 
   const requestClose = async () => {
-    if (!dirty || await confirm({ title: "Discard unsaved changes?", message: "Your edits to this template haven't been saved and will be lost.", confirmLabel: "Discard changes", cancelLabel: "Keep editing", tone: "danger" })) onClose();
+    if (!dirty || await confirm({ title: "Discard unsaved changes?", message: "Your edits to this template haven't been saved and will be lost.", confirmLabel: "Discard changes", cancelLabel: "Keep editing" })) onClose();
   };
 
   function insert(token: string) {

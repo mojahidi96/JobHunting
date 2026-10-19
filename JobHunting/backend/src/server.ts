@@ -4,7 +4,8 @@ import { connectDb, syncIndexes } from "./db/connect.js";
 import { createApp } from "./app.js";
 import { JobRunner, recoverInterruptedJobs } from "./services/jobRunner.js";
 import { createMailerFactory } from "./services/mailService.js";
-import { createAuthMailer } from "./services/authMailer.js";
+import { createConfiguredAuthMailer } from "./services/authMailer.js";
+import { initAuthorization } from "./services/ownerService.js";
 import { createGoogleClient } from "./services/googleService.js";
 
 async function main() {
@@ -17,9 +18,10 @@ async function main() {
   const googleClient = config.google ? createGoogleClient(config.google) : null;
   const mailerFactory = createMailerFactory({ googleClient });
   const runner = new JobRunner({ config, mailerFactory });
-  const authMailer = config.authSmtp ? createAuthMailer(config.authSmtp) : null;
+  const authMailer = createConfiguredAuthMailer(config);
+  await initAuthorization(config);
   if (!googleClient) console.warn("Google sign-in disabled: set GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REDIRECT_URI.");
-  if (!authMailer) console.warn("Email OTP sign-in disabled: set AUTH_SMTP_HOST / AUTH_SMTP_USER / AUTH_SMTP_PASS / AUTH_SMTP_FROM.");
+  if (!(await authMailer.isConfigured!())) console.warn("Email OTP sign-in disabled: no delivery provider. Sign in as the owner and open Admin > Email delivery, or set AUTH_SMTP_HOST / AUTH_SMTP_USER / AUTH_SMTP_PASS / AUTH_SMTP_FROM.");
   const app = createApp({ config, mailerFactory, runner, googleClient, authMailer });
   const server = app.listen(config.port, () => {
     console.log(`jobhunting-api listening on http://localhost:${config.port}/api (${config.env})`);

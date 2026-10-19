@@ -39,6 +39,8 @@ segment to `jobhunting`, otherwise this app would write into that database.
 | `SESSION_IDLE_DAYS`, `SESSION_MAX_DAYS` | Server-enforced session policy, both default `7` (see "Sign-in and sessions"). `SESSION_TTL_DAYS` is accepted as a fallback for the max. |
 | `FRONTEND_URL` | Where the browser returns after Google sign-in. Defaults to the first `CORS_ORIGIN`. |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` | Optional. Enable Google sign-in (all three required). |
+| `OWNER_EMAIL` | The application owner (initial Admin), e.g. `mojahidi96@gmail.com`. Granted server-side only after this exact address is *verified* (Google or emailed code). |
+| `DAILY_SEND_LIMIT`, `ENABLE_APP_PASSWORD_SENDER` | Optional. Per-user rolling-24h send cap (default 200); Gmail App Password sender (default **off** outside tests; users connect Gmail via OAuth). |
 | `AUTH_SMTP_HOST`, `AUTH_SMTP_PORT`, `AUTH_SMTP_SECURE`, `AUTH_SMTP_USER`, `AUTH_SMTP_PASS`, `AUTH_SMTP_FROM` | Optional. Transactional SMTP for login OTP emails. Enables Email OTP. |
 | `DEFAULT_DELAY_MIN_MS`, `DEFAULT_DELAY_MAX_MS`, `MIN_DELAY_BOUND_MS`, `MAX_DELAY_BOUND_MS` | Optional tuning. Defaults: delay 45–90 s; client delays clamped to 30–300 s. |
 
@@ -48,7 +50,7 @@ Frontend: `VITE_API_BASE_URL` (default `/api`). Production: serve the UI and API
 Three methods, one account per email (details and payloads in [docs/API_CONTRACT.md](docs/API_CONTRACT.md)):
 - **Google** — OAuth 2.0 authorization-code flow with PKCE, `state` and `nonce`; the ID token is verified server-side and `email_verified` must be true.
 - **Email + password** — Argon2id; registration asks only for name, email and password (10+ chars, a letter and a number).
-- **Email OTP** — 6-digit code, 10-minute expiry, single use, hash-only storage, 60 s resend cooldown, 5 codes/hour/email, 5 guesses per code, IP rate limits. Codes are never returned or logged.
+- **Email OTP** — 6-digit code, 5-minute expiry, single use, hash-only storage, 60 s resend cooldown, 5 codes/hour/email, 5 guesses per code, IP rate limits. Codes are never returned or logged.
 
 Google and OTP are **optional and off until configured** (`GET /api/auth/providers` tells the UI; the Google button is disabled otherwise). Neither is claimed to work until you configure and test it:
 
@@ -58,6 +60,20 @@ Google and OTP are **optional and off until configured** (`GET /api/auth/provide
 **Account linking.** A Google identity, an OTP and a password all resolve to the same user id, so contacts/templates/history are kept. An existing account is linked only because the email was *just verified* by Google or OTP, never from a bare matching address. If that account's email was never verified (password sign-up), its password is removed on linking, so someone who pre-registered an address cannot keep access. A password-less account can set a password in Profile → Security; "forgot password" is "sign in with an email code, then set a new one".
 
 **Session policy (server-side, not frontend timers).** The session is an opaque random token in an HttpOnly, SameSite=Lax cookie (`Secure` in production); only its hash is stored. It ends after **7 days of inactivity** (`SESSION_IDLE_DAYS`) and after an **absolute 7-day maximum** (`SESSION_MAX_DAYS`). With both at 7 the maximum is the binding limit, so users sign in again at most every 7 days. If you want a true sliding window, raise `SESSION_MAX_DAYS`. Only real use extends the idle clock: UI polling sends `X-Background: 1` and is ignored for that purpose. Logout deletes the session immediately; changing the password revokes every session and rotates the current one. State-changing requests need the per-session `X-CSRF-Token` header. The UI keeps auth state in memory only, restores it with `GET /api/auth/me` on load, and on any 401 clears state and shows "your session expired" on the sign-in page. Nothing credential-like is put in localStorage; the only stored item is the theme preference (`jh_theme`).
+
+## Roles, Admin dashboard and email delivery
+
+- **Roles:** `candidate` (default) and `admin`; the **owner** is an admin flagged `isOwner`. Roles live only in MongoDB and are re-read on every request. No public endpoint accepts a role (registration/profile schemas are strict). `OWNER_EMAIL` is applied at startup and after every verified sign-in (`ownerService.ensureOwner`), never from the frontend, and only when the address is verified, so a password sign-up with the owner's email gets no privileges.
+- **Owner-only:** promote/demote Admins, and Admin → Email delivery. **Admins:** view/search/filter/sort candidates, suspend/reactivate *candidates*. The owner can't be demoted, suspended or deleted via the app; nobody can change their own role/status. Suspension ends sessions immediately and blocks every sign-in method. All of it is in the audit log (Admin → Audit log).
+- **Existing databases:** startup backfills `role`/`status` on old accounts. Nothing else to migrate.
+- **Bootstrapping the owner:** set `OWNER_EMAIL`, restart, then sign in once with **Google** (or an email code once delivery works) using that address. Password sign-up alone does not make you owner.
+- **Email delivery (sign-in codes):** one SMTP-compatible provider, configured either by `AUTH_SMTP_*` env vars or by the owner at *Admin → Email delivery* (password encrypted with `ENCRYPTION_KEY`, never returned; a "send test email to me" button reports a sanitized result). Recommended for a public app: **Resend / Amazon SES / Postmark / SendGrid** with a verified domain. Gmail + App Password is fine for testing the owner's own setup only.
+  1. Create the provider account and **verify a sending domain** (add the DNS records it shows: SPF, DKIM, ideally DMARC) or at least a single sender address.
+  2. Create an SMTP credential/API key; use host/port/user from the provider docs (examples in `backend/.env.example`).
+  3. `AUTH_SMTP_FROM` / the From field must be on the verified domain (e.g. `JobHunting <no-reply@your-domain.com>`).
+  4. Run the in-app test, then request a sign-in code.
+- **Candidate mail:** candidates never give a password or App Password. Recruiter emails go out from their own Gmail through Google OAuth (send-only scope) or not at all. Limits: ≤500 recipients per job, only saved contacts, one active job, 30 s+ between sends, 10 send requests/min, `DAILY_SEND_LIMIT` per 24 h.
+- **Production:** `NODE_ENV=production` forces secure cookies and https-only `CORS_ORIGIN`; terminate TLS in front (the app trusts one proxy hop). `.env` is git-ignored and nothing from it is bundled into `frontend/dist` (only `VITE_*` variables would be, and none hold secrets). Note: Google's `gmail.send` scope is *restricted*; a public launch needs Google's OAuth verification.
 
 ## UI and themes
 Tailwind CSS v4 with semantic design tokens (CSS variables in `frontend/src/styles/app.css`) and a small component kit in `frontend/src/components/ui.tsx` (Button, Field, Card, Badge, Stat, Skeleton, EmptyState, responsive table classes, toasts). Dark mode is class-based (`.dark` on `<html>`). The **Light / Dark / System** switcher is in the top bar, user menu and sign-in screens; it persists in localStorage, is applied by an inline script before first paint (no flash), follows the OS live in System mode, and is also saved to the account (`PATCH /api/profile {theme}`) and adopted on a new device. Layouts are mobile-first: drawer navigation and full-screen dialogs on phones, sidebar on desktop, tables become cards under `md`, `prefers-reduced-motion` is respected, and statuses always carry text/symbols.

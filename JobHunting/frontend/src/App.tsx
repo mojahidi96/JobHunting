@@ -2,13 +2,15 @@ import { useEffect, useRef, useState, type ComponentType, type SVGProps } from "
 import { Navigate, NavLink, Outlet, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "./auth";
 import { Loading } from "./components/common";
-import { CheckIcon, ChevronDownIcon, ClockIcon, CloseIcon, FileIcon, HomeIcon, LogoutIcon, MailIcon, MenuIcon, UserIcon, UsersIcon } from "./components/icons";
+import { CheckIcon, ShieldIcon, ChevronDownIcon, ClockIcon, CloseIcon, FileIcon, HomeIcon, LogoutIcon, MailIcon, MenuIcon, UserIcon, UsersIcon } from "./components/icons";
 import { ThemeSwitcher } from "./components/ThemeSwitcher";
 import { cn } from "./components/ui";
 import { AuthPage } from "./pages/AuthPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { HistoryPage } from "./pages/HistoryPage";
+import { AdminPage } from "./pages/AdminPage";
 import { OnboardingPage } from "./pages/OnboardingPage";
+import { PrivacyPage } from "./pages/PrivacyPage";
 import { ProfilePage } from "./pages/ProfilePage";
 import { RecruitersPage } from "./pages/RecruitersPage";
 import { SettingsPage } from "./pages/SettingsPage";
@@ -21,9 +23,11 @@ const NAV: [string, string, ComponentType<SVGProps<SVGSVGElement>>][] = [
 ];
 
 function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
+  const { user } = useAuth();
+  const items = user?.role === "admin" ? [...NAV, ["/admin", "Admin", ShieldIcon] as (typeof NAV)[number]] : NAV; // hint only: the API enforces roles
   return (
     <ul className="space-y-1">
-      {NAV.map(([to, label, Icon]) => (
+      {items.map(([to, label, Icon]) => (
         <li key={to}>
           <NavLink to={to} end={to === "/"} onClick={onNavigate}
             className={({ isActive }) => cn("flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-medium transition-colors", isActive ? "bg-primary-soft text-primary" : "text-muted hover:bg-surface-muted hover:text-foreground")}>
@@ -127,6 +131,7 @@ export function App() {
         <Route path="/login" element={<AuthPage mode="login" />} />
         <Route path="/login/otp" element={<AuthPage mode="otp" />} />
         <Route path="/register" element={<AuthPage mode="register" />} />
+        <Route path="/privacy" element={<PrivacyPage />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     );
@@ -148,6 +153,8 @@ export function App() {
         <Route path="history" element={<HistoryPage />} />
         <Route path="profile" element={<ProfilePage />} />
         <Route path="settings/email" element={<SettingsPage />} />
+        <Route path="privacy" element={<PrivacyPage />} />
+        <Route path="admin" element={user.role === "admin" ? <AdminPage /> : <Navigate to="/" replace />} />
       </Route>
       <Route path="/login/*" element={<Navigate to="/" replace />} />
       <Route path="/register" element={<Navigate to="/" replace />} />

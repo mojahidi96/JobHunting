@@ -15,6 +15,13 @@ const userSchema = new Schema(
     // True once ownership of `email` was proven (Google verified email or an email OTP).
     emailVerified: { type: Boolean, default: false },
     googleSub: { type: String, default: null },
+    // Authorization. `role` is only ever changed server-side (owner bootstrap, admin API); never from client profile input.
+    role: { type: String, enum: ["candidate", "admin"], default: "candidate" },
+    // The application owner: the only account that may promote/demote admins. Set by trusted bootstrap only.
+    isOwner: { type: Boolean, default: false },
+    status: { type: String, enum: ["active", "suspended"], default: "active" },
+    suspendedAt: { type: Date, default: null },
+    lastLoginAt: { type: Date, default: null },
     onboardingCompletedAt: { type: Date, default: null },
     theme: { type: String, enum: ["light", "dark", "system"], default: "system" },
     profilePhoto: {
@@ -94,6 +101,26 @@ const oauthStateSchema = new Schema(
   { timestamps: false, versionKey: false },
 );
 oauthStateSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+
+/* ------------------------------------------------- audit log + app settings */
+const auditSchema = new Schema(
+  {
+    actorId: { type: id, default: null },
+    actorEmail: { type: String, default: "" },
+    action: { type: String, required: true },
+    targetId: { type: id, default: null },
+    targetEmail: { type: String, default: "" },
+    meta: { type: Schema.Types.Mixed, default: {} }, // never secrets
+  },
+  { timestamps: { createdAt: true, updatedAt: false }, versionKey: false },
+);
+auditSchema.index({ createdAt: -1 });
+
+// Key/value application settings (e.g. the owner-configured transactional SMTP). Secrets are stored encrypted.
+const appSettingSchema = new Schema(
+  { key: { type: String, required: true, unique: true }, value: { type: Schema.Types.Mixed, default: {} }, lastTest: { type: Schema.Types.Mixed, default: null }, updatedBy: { type: id, default: null } },
+  { timestamps: true, versionKey: false },
+);
 
 /* --------------------------------------------------------------- contacts */
 const lastDeliverySchema = new Schema(
@@ -222,6 +249,8 @@ function model<T extends Schema>(name: string, schema: T, collection: string) {
 export const User = model("User", userSchema, "users");
 export const Session = model("Session", sessionSchema, "sessions");
 export const OtpCode = model("OtpCode", otpSchema, "otpcodes");
+export const AuditLog = model("AuditLog", auditSchema, "auditlogs");
+export const AppSetting = model("AppSetting", appSettingSchema, "appsettings");
 export const OAuthState = model("OAuthState", oauthStateSchema, "oauthstates");
 export const RecruiterContact = model("RecruiterContact", contactSchema, "recruitercontacts");
 export const ImportRecord = model("Import", importSchema, "imports");
