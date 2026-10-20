@@ -23,7 +23,8 @@ async function main() {
   if (!googleClient) console.warn("Google sign-in disabled: set GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REDIRECT_URI.");
   if (!(await authMailer.isConfigured!())) console.warn("Email OTP sign-in disabled: no delivery provider. Sign in as the owner and open Admin > Email delivery, or set AUTH_SMTP_HOST / AUTH_SMTP_USER / AUTH_SMTP_PASS / AUTH_SMTP_FROM.");
   const app = createApp({ config, mailerFactory, runner, googleClient, authMailer });
-  const server = app.listen(config.port, () => {
+  // Bind all IPv4 interfaces: hosts like Render only detect/route to 0.0.0.0.
+  const server = app.listen(config.port, "0.0.0.0", () => {
     console.log(`jobhunting-api listening on http://localhost:${config.port}/api (${config.env})`);
   });
 

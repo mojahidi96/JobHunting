@@ -29,10 +29,14 @@ export function createApp({ config, mailerFactory, runner, googleClient, authMai
   app.use(cookieParser());
   app.use(express.json({ limit: "300kb" }));
 
-  const api = express.Router();
-  api.get("/health", (_req, res) => {
+  const health: express.RequestHandler = (_req, res) => {
     res.json({ status: "ok", service: "jobhunting-api", database: mongoose.connection.readyState === 1 ? "up" : "down" });
-  });
+  };
+  // Also exposed at /health: Render's dashboard health check path may differ from render.yaml.
+  app.get("/health", health);
+
+  const api = express.Router();
+  api.get("/health", health);
   api.use("/auth", authRoutes(config, { googleClient, authMailer }));
   api.use("/admin", adminRoutes(config, smtpTester));
   api.use("/settings", settingsRoutes(config, mailerFactory, { googleClient }));
