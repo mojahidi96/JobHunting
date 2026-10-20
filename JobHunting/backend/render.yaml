@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: jobhunting-api
+    runtime: node
+    rootDir: JobHunting/backend
+    plan: free # profile photos in UPLOAD_DIR are lost on redeploy; use a paid plan + disk to keep them
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm run db:init && npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: MONGODB_URI
+        sync: false
+      - key: ENCRYPTION_KEY
+        sync: false
+      - key: OWNER_EMAIL
+        sync: false
+      - key: CORS_ORIGIN # https UI origin, e.g. https://your-app.vercel.app
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REDIRECT_URI # https://<UI origin>/api/auth/google/callback
+        sync: false
+      - key: UPLOAD_DIR
+        value: ./uploads
